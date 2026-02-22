@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build artifacts (The 225MB culprit)
+target/
+**/target/
+dist/
+**/dist/
+build/
+**/build/
+*.wasm
+*.gz
+
+# Environment and Logs
+.env
+*.log
+.DS_Store

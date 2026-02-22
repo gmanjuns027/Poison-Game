@@ -1,0 +1,227 @@
+/* GameLobby.css */
+
+.game-lobby {
+  max-width: 600px;
+  margin: 2rem auto;
+  padding: 2rem;
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(10px);
+  border-radius: 2rem;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  border: 2px solid #a7f3d0;
+}
+
+.game-lobby h2 {
+  font-size: 2rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #059669, #0d9488);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+/* Role selector – two radio buttons styled as pills */
+.role-selector {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  margin-bottom: 2rem;
+}
+
+.role-selector label {
+  flex: 1;
+  max-width: 200px;
+  padding: 0.75rem 1rem;
+  text-align: center;
+  background: #f1f5f9;
+  border: 2px solid #cbd5e1;
+  border-radius: 3rem;
+  font-weight: 600;
+  color: #1e293b;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.role-selector label.selected {
+  background: #10b981;
+  border-color: #059669;
+  color: white;
+  box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.3);
+}
+
+.role-selector input[type="radio"] {
+  appearance: none;
+  margin: 0;
+  width: 1.2rem;
+  height: 1.2rem;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  transition: 0.1s;
+}
+
+.role-selector label.selected input[type="radio"] {
+  background: white;
+  border-color: white;
+  box-shadow: inset 0 0 0 4px #10b981;
+}
+
+/* Error and success messages */
+.error-message {
+  background: #fee2e2;
+  border: 2px solid #f87171;
+  color: #b91c1c;
+  padding: 0.75rem 1rem;
+  border-radius: 1rem;
+  font-weight: 600;
+  margin-bottom: 1.5rem;
+}
+
+.success-message {
+  background: #d1fae5;
+  border: 2px solid #34d399;
+  color: #065f46;
+  padding: 0.75rem 1rem;
+  border-radius: 1rem;
+  font-weight: 600;
+  margin-bottom: 1.5rem;
+}
+
+/* Creator and joiner panels */
+.creator-panel,
+.joiner-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.creator-panel input,
+.joiner-panel input,
+.joiner-panel textarea {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 2px solid #cbd5e1;
+  border-radius: 1rem;
+  font-size: 1rem;
+  background: white;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.creator-panel input:focus,
+.joiner-panel input:focus,
+.joiner-panel textarea:focus {
+  outline: none;
+  border-color: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+}
+
+.joiner-panel textarea {
+  resize: vertical;
+  min-height: 100px;
+  font-family: monospace;
+}
+
+.creator-panel button,
+.joiner-panel button {
+  background: linear-gradient(135deg, #10b981, #0d9488);
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 3rem;
+  font-weight: 700;
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.creator-panel button:hover:not(:disabled),
+.joiner-panel button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 10px -3px rgba(16, 185, 129, 0.4);
+}
+
+.creator-panel button:disabled,
+.joiner-panel button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Game info (shown after creation) */
+.game-info {
+  margin-top: 1.5rem;
+  padding: 1.5rem;
+  background: #f0fdf4;
+  border: 2px solid #86efac;
+  border-radius: 1.5rem;
+}
+
+.game-info p {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+  color: #14532d;
+  word-break: break-word;
+}
+
+.game-info strong {
+  font-size: 1.2rem;
+  background: white;
+  padding: 0.2rem 0.8rem;
+  border-radius: 1rem;
+  border: 1px solid #86efac;
+}
+
+.game-info textarea {
+  width: 100%;
+  padding: 0.5rem;
+  border: 2px solid #86efac;
+  border-radius: 0.75rem;
+  font-family: monospace;
+  font-size: 0.9rem;
+  background: white;
+  resize: vertical;
+  margin-bottom: 0.75rem;
+}
+
+.game-info button {
+  background: white;
+  color: #10b981;
+  border: 2px solid #10b981;
+  padding: 0.5rem 1rem;
+  border-radius: 2rem;
+  font-weight: 600;
+  margin-right: 0.5rem;
+  transition: all 0.2s;
+}
+
+.game-info button:hover {
+  background: #10b981;
+  color: white;
+}
+
+.hint {
+  font-size: 0.9rem;
+  color: #4b5563;
+  background: #f3f4f6;
+  padding: 0.5rem 1rem;
+  border-radius: 2rem;
+  text-align: center;
+  margin-top: 1rem;
+}
+
+.info-message {
+  background: #dbeafe;
+  border: 2px solid #60a5fa;
+  color: #1e3a8a;
+  padding: 0.75rem 1rem;
+  border-radius: 1rem;
+  font-weight: 600;
+  margin-bottom: 1.5rem;
+  text-align: center;
+}

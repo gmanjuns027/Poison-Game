@@ -1,0 +1,366 @@
+/* PoisonGame.css */
+
+.poison-game {
+  background-color: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  border-radius: 2rem;
+  padding: 2rem;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  border: 2px solid #a7f3d0;
+  max-width: 600px;
+  margin: 0 auto;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+.poison-game__header {
+  margin-bottom: 1.5rem;
+}
+
+.poison-game__title {
+  font-size: 1.875rem;
+  font-weight: 900;
+  background: linear-gradient(to right, #059669, #0d9488);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  margin: 0;
+}
+
+.poison-game__subtitle {
+  font-size: 0.875rem;
+  color: #374151;
+  font-weight: 600;
+  margin: 0.25rem 0 0;
+}
+
+.poison-game__message {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  border-radius: 1rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  border-width: 2px;
+  border-style: solid;
+}
+
+.poison-game__message--error {
+  background-color: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.poison-game__message--success {
+  background-color: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #065f46;
+}
+
+/* Back to lobby button */
+.back-to-lobby {
+  background: transparent;
+  border: 2px solid #10b981;
+  color: #10b981;
+  padding: 0.5rem 1rem;
+  border-radius: 2rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 0.5rem;
+  display: inline-block;
+}
+.back-to-lobby:hover {
+  background: #10b981;
+  color: white;
+}
+
+/* Quickstart panel (dev mode) */
+.quickstart-panel {
+  padding: 1.5rem;
+  background: linear-gradient(to bottom right, #fefce8, #ffedd5);
+  border: 2px solid #facc15;
+  border-radius: 2rem;
+  box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+}
+
+.quickstart-panel__header {
+  margin-bottom: 1rem;
+}
+
+.quickstart-panel__title {
+  font-size: 1.125rem;
+  font-weight: 900;
+  color: #713f12;
+  margin: 0;
+}
+
+.quickstart-panel__hint {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #a16207;
+  margin: 0.25rem 0 0;
+}
+
+.quickstart-panel__field {
+  margin-bottom: 1rem;
+}
+
+.quickstart-panel__label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #4b5563;
+  margin-bottom: 0.25rem;
+}
+
+.quickstart-panel__input {
+  width: 100%;
+  padding: 0.5rem 1rem;
+  border: 2px solid #fef08a;
+  border-radius: 0.5rem;
+  font-weight: 700;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.quickstart-panel__input:focus {
+  outline: none;
+  border-color: #eab308;
+}
+
+.quickstart-panel__button {
+  width: 100%;
+  padding: 1rem;
+  border-radius: 1rem;
+  font-weight: 900;
+  color: white;
+  background: linear-gradient(to right, #eab308, #ea580c);
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+.quickstart-panel__button:hover:not(:disabled) {
+  transform: scale(1.02);
+}
+
+.quickstart-panel__button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.quickstart-panel__button:disabled {
+  filter: grayscale(1);
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.quickstart-panel__footnote {
+  font-size: 0.625rem;
+  text-align: center;
+  color: #9a3412;
+  font-weight: 700;
+  margin-top: 0.5rem;
+}
+
+/* Commit phase */
+.board-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.tile {
+  aspect-ratio: 1 / 1;
+  border-radius: 1rem;
+  border: 2px solid #e5e7eb;
+  background-color: #f9fafb;
+  font-size: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 0;
+  width: 100%;
+  height: auto;
+}
+
+.tile--poison {
+  border-color: #f87171;
+  background-color: #fee2e2;
+}
+
+.tile--shield {
+  border-color: #60a5fa;
+  background-color: #dbeafe;
+}
+
+.tile:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tool-selector {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.tool-button {
+  flex: 1;
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  border: 2px solid #e5e7eb;
+  background: white;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 1rem;
+}
+
+.tool-button--active {
+  border-color: #10b981;
+  background-color: #ecfdf5;
+}
+
+.action-button {
+  width: 100%;
+  padding: 1rem;
+  background-color: #059669;
+  color: white;
+  font-weight: 700;
+  border-radius: 1rem;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+.action-button:hover:not(:disabled) {
+  background-color: #047857;
+}
+
+.action-button:disabled {
+  background-color: #d1d5db;
+  cursor: not-allowed;
+}
+
+/* Play phase */
+.attack-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.attack-tile {
+  aspect-ratio: 1 / 1;
+  border-radius: 1rem;
+  border: 2px solid #e5e7eb;
+  background-color: white;
+  font-size: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 0;
+  width: 100%;
+  height: auto;
+}
+
+.attack-tile--revealed {
+  background-color: #e5e7eb;
+  cursor: default;
+}
+
+.attack-tile--selected {
+  border-color: #ef4444;
+  background-color: #fef2f2;
+}
+
+.attack-button {
+  width: 100%;
+  padding: 1rem;
+  background-color: #dc2626;
+  color: white;
+  font-weight: 700;
+  border-radius: 1rem;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+.attack-button:hover:not(:disabled) {
+  background-color: #b91c1c;
+}
+
+.attack-button:disabled {
+  background-color: #d1d5db;
+  cursor: not-allowed;
+}
+
+.defense-button {
+  width: 100%;
+  padding: 1rem;
+  background-color: #4f46e5;
+  color: white;
+  font-weight: 700;
+  border-radius: 1rem;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+.defense-button:hover:not(:disabled) {
+  background-color: #4338ca;
+}
+
+.defense-button:disabled {
+  background-color: #d1d5db;
+  cursor: not-allowed;
+}
+
+/* Complete phase */
+.complete-container {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.complete-emoji {
+  font-size: 4rem;
+}
+
+.complete-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.play-again-button {
+  width: 100%;
+  padding: 1rem;
+  background-color: #1f2937;
+  color: white;
+  font-weight: 700;
+  border-radius: 1rem;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+.play-again-button:hover {
+  background-color: #111827;
+}
+
+/* Utility */
+.text-small {
+  font-size: 0.75rem;
+}
