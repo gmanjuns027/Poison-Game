@@ -412,16 +412,7 @@ export function PoisonGameGame({
   // Render game board if screen is game
   return (
     <div className="poison-game">
-      <div className="poison-game__header">
-        <h2 className="poison-game__title">
-          Poison Game ☠️
-        </h2>
-        <p className="poison-game__subtitle">
-          Hide your poison tiles. Last one standing wins!
-        </p>
-        <button className="back-to-lobby" onClick={() => setScreen('lobby')}>← Back to Lobby</button>
-      </div>
-
+      
       {error && <div className="poison-game__message poison-game__message--error">{error}</div>}
       {success && <div className="poison-game__message poison-game__message--success">{success}</div>}
 

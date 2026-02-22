@@ -214,14 +214,3 @@
   text-align: center;
   margin-top: 1rem;
 }
-
-.info-message {
-  background: #dbeafe;
-  border: 2px solid #60a5fa;
-  color: #1e3a8a;
-  padding: 0.75rem 1rem;
-  border-radius: 1rem;
-  font-weight: 600;
-  margin-bottom: 1.5rem;
-  text-align: center;
-}

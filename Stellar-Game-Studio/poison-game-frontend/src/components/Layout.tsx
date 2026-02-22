@@ -1,15 +1,16 @@
-import { WalletSwitcher } from './WalletSwitcher';
 import './Layout.css';
+import { WalletSwitcher } from './WalletSwitcher'; // adjust path if needed
 
 interface LayoutProps {
   title?: string;
   subtitle?: string;
   children: React.ReactNode;
+  showWalletSwitcher?: boolean;
 }
 
-export function Layout({ title, subtitle, children }: LayoutProps) {
-  const resolvedTitle = title || import.meta.env.VITE_GAME_TITLE || 'Stellar Game';
-  const resolvedSubtitle = subtitle || import.meta.env.VITE_GAME_TAGLINE || 'Testnet dev sandbox';
+export function Layout({ title, subtitle, children, showWalletSwitcher }: LayoutProps) {
+  const resolvedTitle = title || import.meta.env.VITE_GAME_TITLE || 'POISON GAME';
+  const resolvedSubtitle = subtitle || import.meta.env.VITE_GAME_TAGLINE || 'Hide your poison. Survive the night.';
 
   return (
     <div className="studio">
@@ -25,18 +26,14 @@ export function Layout({ title, subtitle, children }: LayoutProps) {
           <div className="brand-title">{resolvedTitle}</div>
           <p className="brand-subtitle">{resolvedSubtitle}</p>
         </div>
-        <div className="header-actions">
-          <div className="network-pill">Testnet</div>
-          <div className="network-pill dev-pill">Dev Wallets</div>
-          <WalletSwitcher />
-        </div>
+        {showWalletSwitcher && (
+          <div className="header-actions">
+            <WalletSwitcher />
+          </div>
+        )}
       </header>
 
       <main className="studio-main">{children}</main>
-
-      <footer className="studio-footer">
-        <span>Built with the Stellar Game Studio</span>
-      </footer>
     </div>
   );
 }

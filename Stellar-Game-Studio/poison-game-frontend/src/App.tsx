@@ -15,7 +15,11 @@ export default function App() {
   const devReady = isDevModeAvailable();
 
   return (
-    <Layout title={GAME_TITLE} subtitle={GAME_TAGLINE}>
+    <Layout 
+      title={GAME_TITLE} 
+      subtitle={GAME_TAGLINE} 
+      showWalletSwitcher={devReady} // 👈 show switcher only when dev wallets are available
+    >
       {!hasContract ? (
         <div className="card">
           <h3 className="gradient-text">Contract Not Configured</h3>

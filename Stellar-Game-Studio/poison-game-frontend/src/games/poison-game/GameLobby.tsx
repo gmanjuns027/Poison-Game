@@ -139,7 +139,7 @@ export function GameLobby({ onGameReady }: GameLobbyProps) {
 
   return (
     <div className="game-lobby">
-      <h2>Poison Game – Remote Play</h2>
+      
       <div className="role-selector">
         <label className={role === 'player1' ? 'selected' : ''}>
           <input

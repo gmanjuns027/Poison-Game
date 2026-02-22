@@ -15,25 +15,26 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0.65rem 0.8rem 0.65rem 1rem;
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid var(--color-border);
+  /* Dark glassmorphism to match studio theme */
+  background: rgba(5, 10, 21, 0.8);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(100, 255, 218, 0.2);
   border-radius: 999px;
-  box-shadow: var(--shadow-tight);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
   transition: all 0.2s ease;
 }
 
 .wallet-status:hover {
-  border-color: var(--color-ink);
+  border-color: #64ffda;
+  background: rgba(5, 10, 21, 0.9);
 }
 
 .wallet-status.connected {
-  background: rgba(255, 255, 255, 0.95);
-  border-color: rgba(0, 167, 181, 0.4);
+  border-color: rgba(100, 255, 218, 0.4);
 }
 
 .wallet-status.connecting {
-  background: rgba(255, 255, 255, 0.85);
-  border-color: rgba(253, 218, 36, 0.6);
+  border-color: rgba(255, 102, 0, 0.4);
 }
 
 .status-indicator {
@@ -41,28 +42,24 @@
   height: 0.5rem;
   border-radius: 50%;
   flex-shrink: 0;
-  background: var(--color-ink-muted);
+  background: #8892b0;
 }
 
 .wallet-status.connected .status-indicator {
-  background: var(--color-success);
-  box-shadow: 0 0 8px rgba(0, 167, 181, 0.4);
+  background: #2ecc71;
+  box-shadow: 0 0 8px rgba(46, 204, 113, 0.6);
   animation: pulse 2s ease-in-out infinite;
 }
 
 .wallet-status.connecting .status-indicator {
-  background: var(--color-warning);
+  background: #ff6600;
+  box-shadow: 0 0 8px rgba(255, 102, 0, 0.6);
   animation: pulse 1s ease-in-out infinite;
 }
 
 @keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 .wallet-details {
@@ -72,70 +69,76 @@
 }
 
 .wallet-label {
-  font-size: 0.46rem;
-  font-weight: 600;
-  color: var(--color-ink-muted);
+  font-size: 0.5rem;
+  font-weight: 700;
+  color: #8892b0; /* Matches brand-subtitle */
   text-transform: uppercase;
-  letter-spacing: 0.2em;
-  font-family: var(--font-display);
+  letter-spacing: 0.15em;
+  font-family: 'Segoe UI', Roboto, sans-serif;
 }
 
 .wallet-address {
   font-size: 0.8rem;
   font-weight: 600;
-  color: var(--color-ink);
-  font-family: var(--font-mono);
+  color: #e0e0e0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .status-text {
   font-size: 0.8rem;
   font-weight: 500;
-  color: var(--color-ink-muted);
+  color: #8892b0;
 }
 
 .switch-button {
-  margin-left: auto;
+  margin-left: 1rem;
   padding: 0.45rem 0.95rem;
-  background: var(--color-accent);
-  color: var(--color-ink);
-  border: 1px solid var(--color-ink);
+  /* Green gradient to match brand-title */
+  background: linear-gradient(135deg, #64ffda, #2ecc71);
+  color: #050a15;
+  border: none;
   border-radius: 999px;
-  font-weight: 600;
+  font-weight: 700;
   font-size: 0.7rem;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.2s ease;
   text-transform: uppercase;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.05em;
   white-space: nowrap;
-  font-family: var(--font-body);
   flex-shrink: 0;
 }
 
 .switch-button:hover {
-  background: var(--color-ink);
-  color: var(--color-bg);
+  transform: translateY(-1px);
+  box-shadow: 0 0 15px rgba(100, 255, 218, 0.4);
+  filter: brightness(1.1);
+}
+
+.switch-button:active {
+  transform: translateY(0);
 }
 
 .switch-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-  transform: none;
+  background: #444;
+  color: #888;
 }
 
 .wallet-error {
-  background: rgba(255, 255, 255, 0.92);
-  color: var(--color-error);
+  background: rgba(200, 70, 59, 0.1);
+  color: #ff4d4d;
   padding: 0.75rem 1rem;
-  border-radius: var(--radius-md);
-  border: 1px solid rgba(200, 70, 59, 0.45);
-  box-shadow: var(--shadow-tight);
+  border-radius: 8px;
+  border: 1px solid rgba(200, 70, 59, 0.4);
+  backdrop-filter: blur(5px);
 }
 
 .error-title {
   font-size: 0.7rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.1em;
   margin-bottom: 0.25rem;
 }
 
@@ -152,16 +155,8 @@
     align-items: stretch;
   }
 
-  .wallet-info {
-    flex-direction: column;
-  }
-
   .wallet-status {
     width: 100%;
     justify-content: space-between;
-  }
-
-  .switch-button {
-    width: auto;
   }
 }
