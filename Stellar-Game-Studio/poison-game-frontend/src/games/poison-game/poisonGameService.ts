@@ -21,9 +21,10 @@ export { Phase };
 type ClientOptions = contract.ClientOptions;
 
 // Higher fee + longer timeout for on-chain UltraHonk ZK verification
+// Fee is passed as a string to satisfy MethodOptions type
 const ZK_METHOD_OPTIONS = {
   ...DEFAULT_METHOD_OPTIONS,
-  fee: 10_000_000,       // 1 XLM cap
+  fee: '10000000',       // 1 XLM cap as string
   timeoutInSeconds: 120, // 2 min
 };
 
@@ -258,7 +259,8 @@ export class PoisonGameService {
       validUntilLedgerSeq,
     );
 
-    console.log('[PoisonGameService] start_game submitted, hash:', sentTx.getTransactionResponse?.hash);
+    // ✅ FIXED: use sendTransactionResponse.hash (always present and correctly typed)
+    console.log('[PoisonGameService] start_game submitted, hash:', sentTx.sendTransactionResponse?.hash);
     return sentTx.result;
   }
 
@@ -347,7 +349,7 @@ export class PoisonGameService {
       throw new Error(`attack failed: ${this.extractError(sentTx.getTransactionResponse)}`);
     }
 
-    console.log('[PoisonGameService] Attack submitted, hash:', sentTx.getTransactionResponse?.hash);
+    console.log('[PoisonGameService] Attack submitted, hash:', sentTx.sendTransactionResponse?.hash);
     return sentTx.result;
   }
 
@@ -369,7 +371,7 @@ export class PoisonGameService {
       defender,
       tile_type:  tileType,
       proof_blob: Buffer.from(proofBlob),
-    }, ZK_METHOD_OPTIONS);
+    }, ZK_METHOD_OPTIONS); // ✅ now uses string fee
 
     const validUntilLedgerSeq = await calculateValidUntilLedger(
       RPC_URL,
@@ -386,7 +388,8 @@ export class PoisonGameService {
       throw new Error(`respondToAttack failed: ${this.extractError(sentTx.getTransactionResponse)}`);
     }
 
-    console.log('[PoisonGameService] ZK proof verified on-chain, hash:', sentTx.getTransactionResponse?.hash);
+    // ✅ FIXED: use sendTransactionResponse.hash
+    console.log('[PoisonGameService] ZK proof verified on-chain, hash:', sentTx.sendTransactionResponse?.hash);
     return sentTx.result;
   }
 
@@ -435,6 +438,10 @@ export class PoisonGameService {
     const sentTx = await signAndSendViaLaunchtube(
       tx, DEFAULT_METHOD_OPTIONS.timeoutInSeconds, validUntilLedgerSeq
     );
+
+    // ✅ FIXED: if a log existed here, it would use sendTransactionResponse.hash
+    // (No log in the current snippet, but included for completeness)
+    console.log('[PoisonGameService] setHub executed, hash:', sentTx.sendTransactionResponse?.hash);
     return sentTx.result;
   }
 
