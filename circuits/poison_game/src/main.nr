@@ -1,76 +1,55 @@
+mod board;
+mod commitment;
+
+use board::validate_board;
+use commitment::verify_commitment;
+
 fn main(
-    // Private inputs (your secret board)
+    // Private witness
     board_layout: [Field; 15],
     salt: Field,
-    // Public inputs (visible on-chain)
-    commitment: pub Field,
-    tile_index: pub Field,
-    tile_type_result: pub Field,
+
+    // Public inputs
+    commitment:       pub Field,
+    tile_index:       pub u32,
+    tile_type_result: pub u32,
 ) {
-    // Constraint 1: commitment = pedersen_hash(all 15 tiles + salt)
-    let hash_inputs: [Field; 16] = [
-        board_layout[0],  board_layout[1],  board_layout[2],
-        board_layout[3],  board_layout[4],  board_layout[5],
-        board_layout[6],  board_layout[7],  board_layout[8],
-        board_layout[9],  board_layout[10], board_layout[11],
-        board_layout[12], board_layout[13], board_layout[14],
-        salt
-    ];
-    let computed_commitment = std::hash::pedersen_hash(hash_inputs);
-    assert(computed_commitment == commitment, "Commitment mismatch");
+    // 1. Verify commitment
+    verify_commitment(board_layout, salt, commitment);
 
-    // Constraint 2: tile_index must be 0-14
-    let idx = tile_index as u64;
-    assert(idx <= 14, "Tile index out of range");
-
-    // Constraint 3: tile at tile_index matches claimed tile_type_result
+    // 2. Verify the claimed tile type at tile_index
     let mut actual_tile: Field = 0;
     for i in 0..15 {
-        if (i as Field) == tile_index {
+        if i as u32 == tile_index {
             actual_tile = board_layout[i];
         }
     }
-    assert(actual_tile == tile_type_result, "Tile type mismatch");
+    assert(
+        actual_tile == tile_type_result as Field,
+        "Tile type mismatch"
+    );
 
-    // Constraint 4: all tile values are 0, 1, or 2
-    for i in 0..15 {
-        let tile = board_layout[i] as u64;
-        assert(tile <= 2, "Invalid tile value");
-    }
-
-    // Constraint 5: exactly 2 Poison tiles (value == 1)
-    let mut poison_count: u64 = 0;
-    for i in 0..15 {
-        if board_layout[i] as u64 == 1 {
-            poison_count += 1;
-        }
-    }
-    assert(poison_count == 2, "Must have exactly 2 poison tiles");
-
-    // Constraint 6: exactly 1 Shield tile (value == 2)
-    let mut shield_count: u64 = 0;
-    for i in 0..15 {
-        if board_layout[i] as u64 == 2 {
-            shield_count += 1;
-        }
-    }
-    assert(shield_count == 1, "Must have exactly 1 shield tile");
+    // 3. Validate board structure (exactly 2 poison, 1 shield)
+    validate_board(board_layout);
 }
 
-// Test to print the real commitment hash
 #[test]
-fn get_commitment() {
-    // Board: poison at indices 3 and 12, shield at index 8
-    let layout: [Field; 15] = [0, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0];
-    let salt: Field = 99999;
-    let inputs: [Field; 16] = [
-        layout[0],  layout[1],  layout[2],
-        layout[3],  layout[4],  layout[5],
-        layout[6],  layout[7],  layout[8],
-        layout[9],  layout[10], layout[11],
-        layout[12], layout[13], layout[14],
-        salt
+fn print_commitment() {
+    // Use the exact board and salt from Prover.toml
+    let board = [
+        1, 0, 0, 0, 0,
+        1, 0, 0, 0, 0,
+        2, 0, 0, 0, 0
     ];
-    let h = std::hash::pedersen_hash(inputs);
-    println(h);
+    let salt = 123456789;
+
+    let mut inputs: [Field; 16] = [0; 16];
+    for i in 0..15 {
+        inputs[i] = board[i] as Field;
+    }
+    inputs[15] = salt as Field;
+
+    let commitment = std::hash::pedersen_hash(inputs);
+    std::println(commitment);
+    assert(true);
 }

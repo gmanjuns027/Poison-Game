@@ -1,21 +1,30 @@
-/* Prevent scrolling on the entire page */
+/* Layout.css */
+
+/* Global reset – no margin/padding, overflow hidden on html/body */
 html, body {
   margin: 0;
   padding: 0;
   width: 100%;
   height: 100%;
-  overflow: hidden; /* Strict no overflow */
+  overflow-x: hidden;      
+  overflow-y: hidden;        
+  background: #050a15;     
+}
+
+* {
+  box-sizing: border-box;
+  max-width: 100%;
 }
 
 .studio {
   position: relative;
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  min-height: 100vh;        
   display: flex;
   flex-direction: column;
   color: #e0e0e0;
-  background: #050a15; 
-  overflow: hidden; /* Ensures orbs don't create scrollbars */
+  background: #050a15;
+  overflow: hidden;         
 }
 
 .studio-background {
@@ -71,56 +80,101 @@ html, body {
   max-width: 1200px;
   margin: 0 auto;
   width: 100%;
-  padding: 2rem 2.5rem 1rem;
+  padding: 1rem 2rem 0.5rem;  
   z-index: 1;
   flex-shrink: 0;
-  
-  /* Add these lines */
   display: flex;
+  flex-wrap: wrap;              
   justify-content: space-between;
   align-items: flex-start;
+  gap: 0.5rem 1rem;
 }
 
-.header-actions {
-  margin-top: 0.5rem; /* Optional: adjust to align vertically with the title text */
+.brand {
+  min-width: 200px;
 }
 
 .brand-title {
   font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   font-weight: 900;
   font-style: italic;
-  font-size: clamp(2rem, 4vw, 3.5rem);
+  font-size: clamp(1.5rem, 5vw, 2.5rem); 
   letter-spacing: -0.02em;
   text-transform: uppercase;
   line-height: 0.9;
   margin: 0;
   background: linear-gradient(to bottom, #64ffda, #2ecc71);
   -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
   filter: drop-shadow(0 0 15px rgba(100, 255, 218, 0.2));
 }
 
 .brand-subtitle {
   color: #8892b0;
-  font-size: 0.9rem;
+  font-size: clamp(0.7rem, 2vw, 0.85rem);
   letter-spacing: 0.05em;
-  margin: 0.5rem 0 0;
+  margin: 0.25rem 0 0;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+
+.network-pill,
+.dev-pill {
+  background: rgba(20, 30, 50, 0.8);
+  border: 1px solid #2ecc71;
+  border-radius: 2rem;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.7rem;
+  color: #a0b0c0;
+  white-space: nowrap;
+}
+.dev-pill {
+  border-color: #fbbf24;
+  color: #fbbf24;
 }
 
 .studio-main {
   max-width: 1200px;
   margin: 0 auto;
   width: 100%;
-  padding: 1rem 2.5rem;
+  padding: 1rem 2rem 2rem;
   position: relative;
   z-index: 1;
   flex: 1;
-  overflow: hidden; /* Prevents internal content from forcing a page scroll */
+  overflow-y: auto;           
   display: flex;
   flex-direction: column;
+}
+
+
+.studio-main > * {
+  max-width: 100%;
 }
 
 @keyframes float {
   0%, 100% { transform: translate(0, 0); }
   50% { transform: translate(1%, 2%); }
+}
+
+/* small screen adjustments */
+@media (max-width: 600px) {
+  .studio-header {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 1rem 1rem 0.5rem;
+  }
+  .header-actions {
+    justify-content: center;
+  }
+  .studio-main {
+    padding: 1rem 1rem 2rem;
+  }
 }

@@ -1,5 +1,5 @@
 import './Layout.css';
-import { WalletSwitcher } from './WalletSwitcher'; // adjust path if needed
+import { WalletSwitcher } from './WalletSwitcher';
 
 interface LayoutProps {
   title?: string;

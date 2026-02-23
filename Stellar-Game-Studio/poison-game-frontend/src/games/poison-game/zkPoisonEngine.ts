@@ -1,10 +1,11 @@
 /**
- * zkPoisonEngine.ts – production‑ready ZK engine for Poison Game
- * Based on working battleship example.
+ * zkPoisonEngine.ts — ZK engine for Poison Game
+ * Circuit: poison_game (15 tiles, 2 poison + 1 shield)
+ * Backend: UltraHonk, keccak oracle, bb v0.87.0
  */
 
 import { Noir } from '@noir-lang/noir_js';
-import { UltraHonkBackend, Barretenberg, Fr, type ProofData } from '@aztec/bb.js';
+import { UltraHonkBackend, Barretenberg, Fr } from '@aztec/bb.js';
 import type { CompiledCircuit } from '@noir-lang/noir_js';
 import { Buffer } from 'buffer';
 
@@ -26,9 +27,7 @@ class ZkProofEngine {
   private _initializing: Promise<void> | null = null;
   private _error: string | null = null;
 
-  get initialized(): boolean {
-    return this._initialized;
-  }
+  get initialized(): boolean { return this._initialized; }
 
   get status(): ZkProofEngineStatus {
     return {
@@ -39,79 +38,70 @@ class ZkProofEngine {
     };
   }
 
-  /**
-   * Initialise the ZK engine (load circuit, Noir, backend, Barretenberg).
-   * Safe to call multiple times – only runs once.
-   */
+  // Safe to call multiple times — only initialises once
   async init(): Promise<void> {
     if (this._initialized) return;
     if (this._initializing) return this._initializing;
-
     this._initializing = this._doInit();
     return this._initializing;
   }
 
   private async _doInit(): Promise<void> {
     try {
-      console.log('[ZkProofEngine] Initialising...');
+      console.log('[ZkPoison] Initialising engine...');
 
-      // 1. Load circuit JSON from public folder
-      console.log('[ZkProofEngine] Loading circuit...');
       const resp = await fetch('/circuit/poison_game.json');
-      if (!resp.ok) {
-        throw new Error(`Failed to load circuit: ${resp.status} ${resp.statusText}`);
-      }
+      if (!resp.ok) throw new Error(`Circuit load failed: ${resp.status} ${resp.statusText}`);
       this.circuit = (await resp.json()) as CompiledCircuit;
-      console.log('[ZkProofEngine] Circuit loaded, bytecode length:', this.circuit.bytecode.length);
 
-      // 2. Create Noir instance for witness generation
       this.noir = new Noir(this.circuit);
       await this.noir.init();
-      console.log('[ZkProofEngine] Noir instance ready');
 
-      // 3. Create UltraHonk backend for proof generation (single thread)
       this.backend = new UltraHonkBackend(this.circuit.bytecode, { threads: 1 });
-      console.log('[ZkProofEngine] UltraHonk backend ready');
 
-      // 4. Create Barretenberg instance for pedersen hash (single thread)
       this.bb = await Barretenberg.new({ threads: 1 });
-      console.log('[ZkProofEngine] Barretenberg instance ready');
 
       this._initialized = true;
       this._error = null;
-      console.log('[ZkProofEngine] ✅ Fully initialised');
+      console.log('[ZkPoison] ✅ Ready');
     } catch (err: any) {
       this._error = err.message || String(err);
-      console.error('[ZkProofEngine] ❌ Init failed:', err);
+      console.error('[ZkPoison] ❌ Init failed:', err);
       throw err;
     }
   }
 
   /**
-   * Compute pedersen_hash([tiles..., salt]) – must match Noir's std::hash::pedersen_hash.
-   * @returns 32‑byte Buffer for commit_board()
+   * Compute pedersen_hash([tile0..tile14, salt]).
+   * Must match exactly what Noir's std::hash::pedersen_hash produces.
+   * Returns 32-byte Buffer — pass directly to commit_board().
    */
   async computeBoardHash(tiles: TileType[], salt: bigint): Promise<Buffer> {
     await this.init();
     if (!this.bb) throw new Error('Barretenberg not initialised');
+    if (tiles.length !== 15) throw new Error(`Need 15 tiles, got ${tiles.length}`);
 
-    if (tiles.length !== 15) {
-      throw new Error(`Expected 15 tiles, got ${tiles.length}`);
-    }
-
-    // Build Fr array: [tile0, tile1, ..., tile14, salt]
     const inputs: Fr[] = tiles.map(t => new Fr(BigInt(t)));
     inputs.push(new Fr(salt));
 
     const hashFr = await this.bb.pedersenHash(inputs, 0);
-    const hashBytes = hashFr.toBuffer();
-    console.log('[ZkProofEngine] Board hash computed:', Buffer.from(hashBytes).toString('hex'));
-    return Buffer.from(hashBytes);
+    return Buffer.from(hashFr.toBuffer());
   }
 
   /**
-   * Generate UltraHonk proof that tiles[tileIndex] === tileType.
-   * @returns 14592‑byte Uint8Array for respond_to_attack()
+   * Generate UltraHonk ZK proof that tiles[tileIndex] === tileType,
+   * given the committed board hash.
+   *
+   * Private inputs (never leave the browser):
+   *   board_layout — full 15-tile layout
+   *   salt         — random value used in commitment
+   *
+   * Public inputs (verified on-chain):
+   *   commitment       — pedersen hash stored at commit_board time
+   *   tile_index       — which tile was attacked
+   *   tile_type_result — what type that tile is (0=Normal, 1=Poison, 2=Shield)
+   *
+   * Returns 14592-byte Uint8Array — pass directly to respond_to_attack().
    */
   async generateTileProof(
     tiles: TileType[],
@@ -122,51 +112,39 @@ class ZkProofEngine {
   ): Promise<Uint8Array> {
     await this.init();
     if (!this.noir || !this.backend) throw new Error('Engine not initialised');
-
     if (tiles.length !== 15) throw new Error('Need 15 tiles');
     if (tileIndex < 0 || tileIndex > 14) throw new Error('Invalid tile index');
-    if (tiles[tileIndex] !== tileType) throw new Error('Tile type mismatch');
+    if (tiles[tileIndex] !== tileType) throw new Error('Tile type mismatch — check board data');
 
-    console.log('[ZkProofEngine] Generating proof for tile', tileIndex, 'type', tileType);
-
-    // Prepare circuit inputs (must match main.nr exactly)
+   
     const inputs = {
       board_layout: tiles.map(t => `0x${BigInt(t).toString(16).padStart(64, '0')}`),
       salt: `0x${salt.toString(16).padStart(64, '0')}`,
       commitment: '0x' + commitment.toString('hex'),
       tile_index: tileIndex,
-      tile_type_result: tileType, // Changed from tile_type to tile_type_result
+      tile_type_result: tileType,
     };
 
-    console.log('[ZkProofEngine] Input map:', JSON.stringify(inputs, null, 2));
+    const t0 = performance.now();
 
-    // 1. Generate witness
-    const startWitness = performance.now();
     const { witness } = await this.noir.execute(inputs);
-    const witnessTime = performance.now() - startWitness;
-    console.log('[ZkProofEngine] Witness generated in %dms, size: %d bytes', witnessTime.toFixed(0), witness.length);
 
-    // 2. Generate proof (UltraHonk, keccak oracle)
-    const startProof = performance.now();
+    const t1 = performance.now();
+    console.log(`[ZkPoison] Witness generated in ${(t1 - t0).toFixed(0)}ms`);
+
+    // keccak: true must match what bb used when writing the VK
     const proofData = await this.backend.generateProof(witness, { keccak: true });
-    const proofTime = performance.now() - startProof;
-    console.log(
-      '[ZkProofEngine] Proof generated in %dms, proof size: %d bytes, public inputs: %d',
-      proofTime.toFixed(0),
-      proofData.proof.length,
-      proofData.publicInputs.length,
-    );
+
+    const t2 = performance.now();
+    console.log(`[ZkPoison] Proof generated in ${(t2 - t1).toFixed(0)}ms — ${proofData.proof.length} bytes`);
 
     if (proofData.proof.length !== 14592) {
-      console.warn(`Unexpected proof size: ${proofData.proof.length} (expected 14592)`);
+      throw new Error(`Wrong proof size: ${proofData.proof.length} (expected 14592). Check bb version matches contract.`);
     }
 
     return proofData.proof;
   }
 
-  /**
-   * Clean up resources (optional).
-   */
   async destroy(): Promise<void> {
     try {
       await this.backend?.destroy();
@@ -177,27 +155,36 @@ class ZkProofEngine {
     this.noir = null;
     this.circuit = null;
     this._initialized = false;
+    this._initializing = null;
   }
 }
 
-// Singleton instance
+// ── Singleton ──────────────────────────────────────────────────────────────
 export const zkProofEngine = new ZkProofEngine();
 
-// Re‑export helper functions for compatibility with existing code
-export const computeBoardHash = (tiles: TileType[], salt: bigint) => zkProofEngine.computeBoardHash(tiles, salt);
-export const generateTileProof = (tiles: TileType[], salt: bigint, commitment: Buffer, tileIndex: number, tileType: TileType) =>
-  zkProofEngine.generateTileProof(tiles, salt, commitment, tileIndex, tileType);
+// ── Exported helpers ─────────────────────────
+export const computeBoardHash = (tiles: TileType[], salt: bigint) =>
+  zkProofEngine.computeBoardHash(tiles, salt);
+
+export const generateTileProof = (
+  tiles: TileType[],
+  salt: bigint,
+  commitment: Buffer,
+  tileIndex: number,
+  tileType: TileType,
+) => zkProofEngine.generateTileProof(tiles, salt, commitment, tileIndex, tileType);
+
 export const generateSalt = (): bigint => {
   const bytes = crypto.getRandomValues(new Uint8Array(31));
   return bytes.reduce((acc, b) => (acc << 8n) | BigInt(b), 0n);
 };
+
 export const validateBoard = (tiles: TileType[]): { valid: boolean; error?: string } => {
   if (tiles.length !== 15) return { valid: false, error: `Need 15 tiles, got ${tiles.length}` };
-  if (tiles.some(t => t !== 0 && t !== 1 && t !== 2))
-    return { valid: false, error: 'Invalid tile values' };
+  if (tiles.some(t => t !== 0 && t !== 1 && t !== 2)) return { valid: false, error: 'Invalid tile values' };
   const poisons = tiles.filter(t => t === 1).length;
   const shields = tiles.filter(t => t === 2).length;
-  if (poisons !== 2) return { valid: false, error: `Need 2 poison, got ${poisons}` };
-  if (shields !== 1) return { valid: false, error: `Need 1 shield, got ${shields}` };
+  if (poisons !== 2) return { valid: false, error: `Need exactly 2 poison tiles, got ${poisons}` };
+  if (shields !== 1) return { valid: false, error: `Need exactly 1 shield tile, got ${shields}` };
   return { valid: true };
 };

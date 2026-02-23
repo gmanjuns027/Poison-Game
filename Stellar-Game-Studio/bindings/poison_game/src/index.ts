@@ -34,7 +34,7 @@ if (typeof window !== "undefined") {
 export const networks = {
   testnet: {
     networkPassphrase: "Test SDF Network ; September 2015",
-    contractId: "CBPKAQQGWR5NNH2A645EN43UM7LORT3UJLRPACXQC4P25CKRMRY3NMLX",
+    contractId: "CDJ4JTCP6PB4YCA4TJKZI3PAGI556I6KW3DDAG2JNM42CK4I6JGHNPND",
   }
 } as const
 
@@ -74,13 +74,10 @@ export interface GameState {
   player1_commitment: Buffer;
   player1_committed: boolean;
   player1_points: i128;
-  player1_score: i64;
   player2: string;
   player2_commitment: Buffer;
   player2_committed: boolean;
   player2_points: i128;
-  player2_score: i64;
-  skip_next_turn: boolean;
   winner: u32;
 }
 
@@ -93,13 +90,11 @@ export interface RevealedTile {
 export interface Client {
   /**
    * Construct and simulate a attack transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
-   * Current turn player picks a tile index (0-14) on the OPPONENT'S board.
    */
   attack: ({session_id, attacker, tile_index}: {session_id: u32, attacker: string, tile_index: u32}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
 
   /**
    * Construct and simulate a has_vk transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
-   * Check if VK has been stored.
    */
   has_vk: (options?: MethodOptions) => Promise<AssembledTransaction<boolean>>
 
@@ -110,11 +105,9 @@ export interface Client {
 
   /**
    * Construct and simulate a init_vk transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
-   * Store the verification key once after deploy.
-   * Call with the raw binary contents of `circuits/poison_game/target/vk`
-   * (generated with `bb write_vk --oracle_hash keccak`).
-   * This function can only be called by admin, and can be called multiple
-   * times to upgrade the VK if the circuit changes.
+   * Store verification key after deploy (or when circuit changes).
+   * Only callable by admin.
+   * vk_bytes = raw bytes from `bb write_vk_ultra_honk -b target/poison_game.json`
    */
   init_vk: ({caller, vk_bytes}: {caller: string, vk_bytes: Buffer}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
 
@@ -130,7 +123,6 @@ export interface Client {
 
   /**
    * Construct and simulate a get_game transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
-   * Poll game state.
    */
   get_game: ({session_id}: {session_id: u32}, options?: MethodOptions) => Promise<AssembledTransaction<Result<GameState>>>
 
@@ -146,30 +138,18 @@ export interface Client {
 
   /**
    * Construct and simulate a start_game transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
-   * Both players sign to start a game. Calls GameHub to lock points.
    */
   start_game: ({session_id, player1, player2, player1_points, player2_points}: {session_id: u32, player1: string, player2: string, player1_points: i128, player2_points: i128}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
 
   /**
    * Construct and simulate a commit_board transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
-   * Each player commits their board hash before seeing any tiles.
-   * `board_hash` = pedersen_hash([tile0..tile14, salt]) from the browser ZK engine.
+   * board_hash = pedersen_hash([tile0..tile14, salt]) computed in the browser.
+   * Once both players commit, phase moves to Playing.
    */
   commit_board: ({session_id, player, board_hash}: {session_id: u32, player: string, board_hash: Buffer}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
 
   /**
    * Construct and simulate a respond_to_attack transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
-   * Defender responds with the tile type and a UltraHonk ZK proof.
-   * 
-   * # Proof blob format (from browser zkPoisonEngine):
-   * Exactly PROOF_BYTES (14592) raw bytes from `bb prove --oracle_hash keccak`.
-   * 
-   * # Public inputs (reconstructed on-chain from stored state):
-   * [commitment: 32B][tile_index: 32B][tile_type: 32B] = 96 bytes
-   * The contract builds these from its own storage — defender cannot tamper.
-   * 
-   * # Verification:
-   * Uses `UltraHonkVerifier::new(&env, &vk_bytes).verify(&proof, &pub_inputs)`.
    */
   respond_to_attack: ({session_id, defender, tile_type, proof_blob}: {session_id: u32, defender: string, tile_type: u32, proof_blob: Buffer}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
 
@@ -196,21 +176,21 @@ export class Client extends ContractClient {
       new ContractSpec([ "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",
-        "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",
+        "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",
-        "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",
+        "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",
+        "AAAAAAAAAAAAAAAGaGFzX3ZrAAAAAAAAAAAAAQAAAAE=",
         "AAAAAAAAAAAAAAAHZ2V0X2h1YgAAAAAAAAAAAQAAABM=",
-        "AAAAAAAAAR5TdG9yZSB0aGUgdmVyaWZpY2F0aW9uIGtleSBvbmNlIGFmdGVyIGRlcGxveS4KQ2FsbCB3aXRoIHRoZSByYXcgYmluYXJ5IGNvbnRlbnRzIG9mIGBjaXJjdWl0cy9wb2lzb25fZ2FtZS90YXJnZXQvdmtgCihnZW5lcmF0ZWQgd2l0aCBgYmIgd3JpdGVfdmsgLS1vcmFjbGVfaGFzaCBrZWNjYWtgKS4KVGhpcyBmdW5jdGlvbiBjYW4gb25seSBiZSBjYWxsZWQgYnkgYWRtaW4sIGFuZCBjYW4gYmUgY2FsbGVkIG11bHRpcGxlCnRpbWVzIHRvIHVwZ3JhZGUgdGhlIFZLIGlmIHRoZSBjaXJjdWl0IGNoYW5nZXMuAAAAAAAHaW5pdF92awAAAAACAAAAAAAAAAZjYWxsZXIAAAAAABMAAAAAAAAACHZrX2J5dGVzAAAADgAAAAEAAAPpAAAAAgAAAAM=",
+        "AAAAAAAAAKRTdG9yZSB2ZXJpZmljYXRpb24ga2V5IGFmdGVyIGRlcGxveSAob3Igd2hlbiBjaXJjdWl0IGNoYW5nZXMpLgpPbmx5IGNhbGxhYmxlIGJ5IGFkbWluLgp2a19ieXRlcyA9IHJhdyBieXRlcyBmcm9tIGBiYiB3cml0ZV92a191bHRyYV9ob25rIC1iIHRhcmdldC9wb2lzb25fZ2FtZS5qc29uYAAAAAdpbml0X3ZrAAAAAAIAAAAAAAAABmNhbGxlcgAAAAAAEwAAAAAAAAAIdmtfYnl0ZXMAAAAOAAAAAQAAA+kAAAACAAAAAw==",
         "AAAAAAAAAAAAAAAHc2V0X2h1YgAAAAABAAAAAAAAAAduZXdfaHViAAAAABMAAAAA",
         "AAAAAAAAAAAAAAAHdXBncmFkZQAAAAABAAAAAAAAAA1uZXdfd2FzbV9oYXNoAAAAAAAD7gAAACAAAAAA",
-        "AAAAAAAAABBQb2xsIGdhbWUgc3RhdGUuAAAACGdldF9nYW1lAAAAAQAAAAAAAAAKc2Vzc2lvbl9pZAAAAAAABAAAAAEAAAPpAAAH0AAAAAlHYW1lU3RhdGUAAAAAAAAD",
+        "AAAAAAAAAAAAAAAIZ2V0X2dhbWUAAAABAAAAAAAAAApzZXNzaW9uX2lkAAAAAAAEAAAAAQAAA+kAAAfQAAAACUdhbWVTdGF0ZQAAAAAAAAM=",
         "AAAAAAAAAAAAAAAJZ2V0X2FkbWluAAAAAAAAAAAAAAEAAAAT",
         "AAAAAAAAAAAAAAAJc2V0X2FkbWluAAAAAAAAAQAAAAAAAAAJbmV3X2FkbWluAAAAAAAAEwAAAAA=",
-        "AAAAAAAAAEBCb3RoIHBsYXllcnMgc2lnbiB0byBzdGFydCBhIGdhbWUuIENhbGxzIEdhbWVIdWIgdG8gbG9jayBwb2ludHMuAAAACnN0YXJ0X2dhbWUAAAAAAAUAAAAAAAAACnNlc3Npb25faWQAAAAAAAQAAAAAAAAAB3BsYXllcjEAAAAAEwAAAAAAAAAHcGxheWVyMgAAAAATAAAAAAAAAA5wbGF5ZXIxX3BvaW50cwAAAAAACwAAAAAAAAAOcGxheWVyMl9wb2ludHMAAAAAAAsAAAABAAAD6QAAAAIAAAAD",
-        "AAAAAAAAAI1FYWNoIHBsYXllciBjb21taXRzIHRoZWlyIGJvYXJkIGhhc2ggYmVmb3JlIHNlZWluZyBhbnkgdGlsZXMuCmBib2FyZF9oYXNoYCA9IHBlZGVyc2VuX2hhc2goW3RpbGUwLi50aWxlMTQsIHNhbHRdKSBmcm9tIHRoZSBicm93c2VyIFpLIGVuZ2luZS4AAAAAAAAMY29tbWl0X2JvYXJkAAAAAwAAAAAAAAAKc2Vzc2lvbl9pZAAAAAAABAAAAAAAAAAGcGxheWVyAAAAAAATAAAAAAAAAApib2FyZF9oYXNoAAAAAAPuAAAAIAAAAAEAAAPpAAAAAgAAAAM=",
-        "AAAAAAAAAGdEZXBsb3kgd2l0aCBhZG1pbiBhbmQgR2FtZUh1YiBhZGRyZXNzZXMuCkFmdGVyIGRlcGxveSwgY2FsbCBpbml0X3ZrKCkgd2l0aCB0aGUgVksgYnl0ZXMgZnJvbSB0YXJnZXQvdmsuAAAAAA1fX2NvbnN0cnVjdG9yAAAAAAAAAgAAAAAAAAAFYWRtaW4AAAAAAAATAAAAAAAAAAhnYW1lX2h1YgAAABMAAAAA",
-        "AAAAAAAAAeFEZWZlbmRlciByZXNwb25kcyB3aXRoIHRoZSB0aWxlIHR5cGUgYW5kIGEgVWx0cmFIb25rIFpLIHByb29mLgoKIyBQcm9vZiBibG9iIGZvcm1hdCAoZnJvbSBicm93c2VyIHprUG9pc29uRW5naW5lKToKRXhhY3RseSBQUk9PRl9CWVRFUyAoMTQ1OTIpIHJhdyBieXRlcyBmcm9tIGBiYiBwcm92ZSAtLW9yYWNsZV9oYXNoIGtlY2Nha2AuCgojIFB1YmxpYyBpbnB1dHMgKHJlY29uc3RydWN0ZWQgb24tY2hhaW4gZnJvbSBzdG9yZWQgc3RhdGUpOgpbY29tbWl0bWVudDogMzJCXVt0aWxlX2luZGV4OiAzMkJdW3RpbGVfdHlwZTogMzJCXSA9IDk2IGJ5dGVzClRoZSBjb250cmFjdCBidWlsZHMgdGhlc2UgZnJvbSBpdHMgb3duIHN0b3JhZ2Ug4oCUIGRlZmVuZGVyIGNhbm5vdCB0YW1wZXIuCgojIFZlcmlmaWNhdGlvbjoKVXNlcyBgVWx0cmFIb25rVmVyaWZpZXI6Om5ldygmZW52LCAmdmtfYnl0ZXMpLnZlcmlmeSgmcHJvb2YsICZwdWJfaW5wdXRzKWAuAAAAAAAAEXJlc3BvbmRfdG9fYXR0YWNrAAAAAAAABAAAAAAAAAAKc2Vzc2lvbl9pZAAAAAAABAAAAAAAAAAIZGVmZW5kZXIAAAATAAAAAAAAAAl0aWxlX3R5cGUAAAAAAAAEAAAAAAAAAApwcm9vZl9ibG9iAAAAAAAOAAAAAQAAA+kAAAACAAAAAw==" ]),
+        "AAAAAAAAAAAAAAAKc3RhcnRfZ2FtZQAAAAAABQAAAAAAAAAKc2Vzc2lvbl9pZAAAAAAABAAAAAAAAAAHcGxheWVyMQAAAAATAAAAAAAAAAdwbGF5ZXIyAAAAABMAAAAAAAAADnBsYXllcjFfcG9pbnRzAAAAAAALAAAAAAAAAA5wbGF5ZXIyX3BvaW50cwAAAAAACwAAAAEAAAPpAAAAAgAAAAM=",
+        "AAAAAAAAAHxib2FyZF9oYXNoID0gcGVkZXJzZW5faGFzaChbdGlsZTAuLnRpbGUxNCwgc2FsdF0pIGNvbXB1dGVkIGluIHRoZSBicm93c2VyLgpPbmNlIGJvdGggcGxheWVycyBjb21taXQsIHBoYXNlIG1vdmVzIHRvIFBsYXlpbmcuAAAADGNvbW1pdF9ib2FyZAAAAAMAAAAAAAAACnNlc3Npb25faWQAAAAAAAQAAAAAAAAABnBsYXllcgAAAAAAEwAAAAAAAAAKYm9hcmRfaGFzaAAAAAAD7gAAACAAAAABAAAD6QAAAAIAAAAD",
+        "AAAAAAAAAFVEZXBsb3k6IHNldCBhZG1pbiArIEdhbWVIdWIgYWRkcmVzcy4KVGhlbiBjYWxsIGluaXRfdmsoKSB3aXRoIHRoZSBVbHRyYUhvbmsgVksgYnl0ZXMuAAAAAAAADV9fY29uc3RydWN0b3IAAAAAAAACAAAAAAAAAAVhZG1pbgAAAAAAABMAAAAAAAAACGdhbWVfaHViAAAAEwAAAAA=",
+        "AAAAAAAAAAAAAAARcmVzcG9uZF90b19hdHRhY2sAAAAAAAAEAAAAAAAAAApzZXNzaW9uX2lkAAAAAAAEAAAAAAAAAAhkZWZlbmRlcgAAABMAAAAAAAAACXRpbGVfdHlwZQAAAAAAAAQAAAAAAAAACnByb29mX2Jsb2IAAAAAAA4AAAABAAAD6QAAAAIAAAAD" ]),
       options
     )
   }

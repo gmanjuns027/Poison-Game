@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { config } from './config';
 import { Layout } from './components/Layout';
 import { useWallet } from './hooks/useWallet';
@@ -9,6 +10,13 @@ const GAME_TAGLINE = import.meta.env.VITE_GAME_TAGLINE || 'On-chain game on Stel
 
 export default function App() {
   const { publicKey, isConnected, isConnecting, error, isDevModeAvailable } = useWallet();
+  
+  /**
+   * This state now controls the visibility of the switcher.
+   * It starts as 'true' so you can see it in the lobby.
+   */
+  const [showSwitcher, setShowSwitcher] = useState(true); 
+
   const userAddress = publicKey ?? '';
   const contractId = config.contractIds[GAME_ID] || '';
   const hasContract = contractId && contractId !== 'YOUR_CONTRACT_ID';
@@ -18,7 +26,8 @@ export default function App() {
     <Layout 
       title={GAME_TITLE} 
       subtitle={GAME_TAGLINE} 
-      showWalletSwitcher={devReady} // 👈 show switcher only when dev wallets are available
+      // The switcher shows only if dev wallets exist AND the game logic allows it
+      showWalletSwitcher={devReady && showSwitcher} 
     >
       {!hasContract ? (
         <div className="card">
@@ -51,6 +60,13 @@ export default function App() {
           availablePoints={1000000000n}
           onStandingsRefresh={() => {}}
           onGameComplete={() => {}}
+          /**
+           * PoisonGameGame will call this with:
+           * - true: when in the lobby
+           * - true: when in a 'Quick Start' game (for testing)
+           * - false: when in a real 'Player vs Player' game (with your brother)
+           */
+          onGameModeChange={setShowSwitcher} 
         />
       )}
     </Layout>

@@ -14,7 +14,6 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       buffer: path.resolve(__dirname, './node_modules/buffer/'),
-      // 👇 Add this alias to redirect pino to a stub
       pino: path.resolve(__dirname, './src/stubs/pino.js'),
       'pino-pretty': path.resolve(__dirname, './src/stubs/pino-pretty.js'),
     },
@@ -32,8 +31,8 @@ export default defineConfig({
       '@noir-lang/acvm_js',
       '@noir-lang/noirc_abi',
       '@aztec/bb.js',
-      'pino',           // 👈 keep excluded
-      'pino-pretty',    // 👈 keep excluded
+      'pino',           
+      'pino-pretty',    
     ],
     esbuildOptions: {
       define: { global: 'globalThis' },
@@ -45,7 +44,7 @@ export default defineConfig({
     },
     target: 'esnext',
     rollupOptions: {
-      external: ['pino', 'pino-pretty'], // 👈 prevent bundling
+      external: ['pino', 'pino-pretty'], 
     },
   },
   worker: {

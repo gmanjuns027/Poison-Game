@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
-import { GameLobby } from './GameLobby'; // import the lobby
-import { poisonGameService } from './poisonGameService'; // import singleton
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { GameLobby } from './GameLobby';
+import { PoisonGameService } from './poisonGameService';
 import { useWallet } from '@/hooks/useWallet';
 import { POISON_GAME_CONTRACT } from '@/utils/constants';
-import { devWalletService, DevWalletService } from '@/services/devWalletService';
+import { devWalletService } from '@/services/devWalletService';
 import { Phase } from './bindings';
 import type { GameState } from './bindings';
 import {
@@ -15,63 +15,59 @@ import {
 } from './zkPoisonEngine';
 import './PoisonGame.css';
 
-// ─── Session ID helper ───────────────────────────────────────────────────────
-const createRandomSessionId = (): number => {
-  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-    let value = 0;
-    const buffer = new Uint32Array(1);
-    while (value === 0) {
-      crypto.getRandomValues(buffer);
-      value = buffer[0];
-    }
-    return value;
-  }
-  return (Math.floor(Math.random() * 0xffffffff) >>> 0) || 1;
-};
-
-// REMOVE: const poisonGameService = new PoisonGameService(POISON_GAME_CONTRACT);
+const svc = new PoisonGameService(POISON_GAME_CONTRACT);
 
 const TILE_EMOJI: Record<number, string> = { 0: '⬜', 1: '☠️', 2: '🛡️' };
 const TILE_LABEL: Record<number, string> = { 0: 'Normal', 1: 'Poison', 2: 'Shield' };
 
-// ─── Board localStorage ───────────────────────────────────────────────────────
+// ─── Board localStorage helpers ───────────────────────────────────────────────
 interface StoredBoard {
   tiles: TileType[];
   salt: string;
   commitment: string;
 }
 
-const boardStorageKey = (sessionId: number, addr: string) =>
-  `poison-board-${sessionId}-${addr}`;
+const boardKey = (sid: number, addr: string) => `poison-board-${sid}-${addr}`;
 
-function saveBoard(
-  sessionId: number, addr: string,
-  tiles: TileType[], salt: bigint, commitment: Buffer,
-) {
+function saveBoard(sid: number, addr: string, tiles: TileType[], salt: bigint, commitment: Buffer) {
   try {
-    localStorage.setItem(boardStorageKey(sessionId, addr), JSON.stringify({
-      tiles,
-      salt: salt.toString(),
-      commitment: commitment.toString('hex'),
+    localStorage.setItem(boardKey(sid, addr), JSON.stringify({
+      tiles, salt: salt.toString(), commitment: commitment.toString('hex'),
     } satisfies StoredBoard));
-  } catch { /* storage unavailable */ }
+  } catch { /**/ }
 }
 
-function loadBoard(sessionId: number, addr: string): {
-  tiles: TileType[]; salt: bigint; commitment: Buffer;
-} | null {
+function loadBoard(sid: number, addr: string): { tiles: TileType[]; salt: bigint; commitment: Buffer } | null {
   try {
-    const raw = localStorage.getItem(boardStorageKey(sessionId, addr));
+    const raw = localStorage.getItem(boardKey(sid, addr));
     if (!raw) return null;
     const d: StoredBoard = JSON.parse(raw);
-    return {
-      tiles: d.tiles,
-      salt: BigInt(d.salt),
-      commitment: Buffer.from(d.commitment, 'hex'),
-    };
+    return { tiles: d.tiles, salt: BigInt(d.salt), commitment: Buffer.from(d.commitment, 'hex') };
   } catch { return null; }
 }
 
+function clearBoard(sid: number, addr: string) {
+  try { localStorage.removeItem(boardKey(sid, addr)); } catch { /**/ }
+}
+
+// Count how many specials (poison + shield) a player has found on opponent's board
+function countSpecialsFound(revealed: Array<{ tile_index: number; tile_type: number }>): { poison: number; shield: number } {
+  let poison = 0;
+  let shield = 0;
+  for (const r of revealed) {
+    if (r.tile_type === 1) poison++;
+    if (r.tile_type === 2) shield++;
+  }
+  return { poison, shield };
+}
+
+// Map an address to dev wallet slot (defaults to 1 if unknown)
+const getDevWalletNum = (addr: string): 1 | 2 => {
+  const p2 = import.meta.env.VITE_DEV_PLAYER2_ADDRESS;
+  return addr === p2 ? 2 : 1;
+};
+
+// ─── Props ────────────────────────────────────────────────────────────────────
 interface PoisonGameGameProps {
   userAddress: string;
   currentEpoch: number;
@@ -80,6 +76,7 @@ interface PoisonGameGameProps {
   initialSessionId?: number | null;
   onStandingsRefresh: () => void;
   onGameComplete: () => void;
+  onGameModeChange?: (isLobby: boolean) => void;
 }
 
 export function PoisonGameGame({
@@ -89,261 +86,237 @@ export function PoisonGameGame({
   initialSessionId,
   onStandingsRefresh,
   onGameComplete,
+  onGameModeChange,
 }: PoisonGameGameProps) {
-  const DEFAULT_POINTS = '0.1';
-  const POINTS_DECIMALS = 7;
-  const { getContractSigner, walletType } = useWallet();
+  const { walletType, getContractSigner } = useWallet();
 
-  const [screen, setScreen] = useState<'lobby' | 'game'>('lobby'); // new state
-  const [sessionId, setSessionId] = useState<number>(() => createRandomSessionId());
-  const [player1Address, setPlayer1Address] = useState(userAddress);
-  const [player1Points, setPlayer1Points] = useState(DEFAULT_POINTS);
+  // ── Screen ──────────────────────────────────────────────────────────────
+  const [screen, setScreen] = useState<'lobby' | 'game'>('lobby');
+  const [sessionId, setSessionId] = useState<number>(0);
+
+  // Locked at lobby exit — but in quick‑start we override them reactively
+  const [myAddress, setMyAddress] = useState<string>('');
+  const [myPlayerNum, setMyPlayerNum] = useState<1 | 2 | 0>(0);
+  const [myDevWallet, setMyDevWallet] = useState<1 | 2>(1);
+
+  // ── Quick‑start flag ───────────────────────────────────────────────────
+  const [isQuickStart, setIsQuickStart] = useState(false);
+
+  // ── Game phase ──────────────────────────────────────────────────────────
+  const [gamePhase, setGamePhase] = useState<'commit' | 'play' | 'complete'>('commit');
   const [gameState, setGameState] = useState<GameState | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [quickstartLoading, setQuickstartLoading] = useState(false);
+
+  // ── Status ──────────────────────────────────────────────────────────────
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [gamePhase, setGamePhase] = useState<'create' | 'commit' | 'play' | 'complete'>('create');
-  
-  const [myBoard, setMyBoard] = useState<TileType[]>(() => Array(15).fill(0) as TileType[]);
-  const [activeTool, setActiveTool] = useState<TileType>(1);
-  const [boardCommitted, setBoardCommitted] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
   const [isResponding, setIsResponding] = useState(false);
   const [zkProgress, setZkProgress] = useState<string | null>(null);
+
+  // ── Board ───────────────────────────────────────────────────────────────
+  const [myBoard, setMyBoard] = useState<TileType[]>(() => Array(15).fill(0) as TileType[]);
+  const [activeTool, setActiveTool] = useState<TileType>(1);
+  const [boardCommitted, setBoardCommitted] = useState(false);
+
+  // ── Play ────────────────────────────────────────────────────────────────
   const [selectedAttackTile, setSelectedAttackTile] = useState<number | null>(null);
-  const [savedBoardData, setSavedBoardData] = useState<{
-    tiles: TileType[]; salt: bigint; commitment: Buffer;
-  } | null>(null);
 
-  const isBusy = loading || quickstartLoading || isCommitting || isResponding;
   const actionLock = useRef(false);
-  const quickstartAvailable = walletType === 'dev'
-    && DevWalletService.isDevModeAvailable()
-    && DevWalletService.isPlayerAvailable(1)
-    && DevWalletService.isPlayerAvailable(2);
+  const isBusy = loading || isCommitting || isResponding;
 
+  // Load board data for the current player from localStorage
+  const currentBoardData = useMemo(() => {
+    if (screen !== 'game' || !myAddress || !sessionId) return null;
+    return loadBoard(sessionId, myAddress);
+  }, [screen, sessionId, myAddress]);
+
+  // Derived counts for board validation
   const poisonCount = myBoard.filter(t => t === 1).length;
   const shieldCount = myBoard.filter(t => t === 2).length;
-  const boardValid = validateBoard(myBoard).valid;
+  const boardValid  = validateBoard(myBoard).valid;
 
-  const winnerNum = gameState?.winner ?? 0;
-  const iAmPlayer1 = gameState?.player1 === userAddress;
-  const iAmPlayer2 = gameState?.player2 === userAddress;
-  const myPlayerNum = iAmPlayer1 ? 1 : iAmPlayer2 ? 2 : 0;
-  const iWon = winnerNum !== 0 && winnerNum === myPlayerNum;
+  // Derived from gameState and myPlayerNum
+  const winnerNum       = gameState?.winner ?? 0;
+  const iAmPlayer1      = myPlayerNum === 1;
+  const iAmPlayer2      = myPlayerNum === 2;
+  const iWon            = winnerNum !== 0 && winnerNum === myPlayerNum;
 
-  const isMyAttackTurn = myPlayerNum !== 0
-    && !gameState?.has_pending_attack
-    && gameState?.current_turn === myPlayerNum;
-  const isMyDefenseTurn = myPlayerNum !== 0
-    && gameState?.has_pending_attack === true
-    && gameState?.current_turn !== myPlayerNum;
-  const pendingTile = gameState?.pending_attack_tile ?? 0;
+  const isMyAttackTurn =
+    myPlayerNum !== 0 &&
+    !gameState?.has_pending_attack &&
+    gameState?.current_turn === myPlayerNum;
 
-  const oppRevealedTiles = myPlayerNum === 1
-    ? (gameState?.p2_revealed ?? [])
-    : (gameState?.p1_revealed ?? []);
+  const isMyDefenseTurn =
+    myPlayerNum !== 0 &&
+    gameState?.has_pending_attack === true &&
+    gameState?.current_turn !== myPlayerNum;
 
+  const pendingTile      = gameState?.pending_attack_tile ?? 0;
+  const myRevealedTiles  = iAmPlayer1 ? (gameState?.p1_revealed ?? []) : (gameState?.p2_revealed ?? []);
+  const oppRevealedTiles = iAmPlayer1 ? (gameState?.p2_revealed ?? []) : (gameState?.p1_revealed ?? []);
+
+  // Specials found – used in scorebar
+  const p1Found = countSpecialsFound(gameState?.p2_revealed ?? []);
+  const p2Found = countSpecialsFound(gameState?.p1_revealed ?? []);
+  const myFound = iAmPlayer1 ? p1Found : p2Found;
+
+  // ── Notify parent of lobby/game mode ───────────────────────────────────
   useEffect(() => {
-    setPlayer1Address(userAddress);
-  }, [userAddress]);
+    // Show switcher if we are in the lobby OR it's a quick‑start game
+    const shouldShow = screen === 'lobby' || isQuickStart;
+    onGameModeChange?.(shouldShow);
+  }, [screen, isQuickStart, onGameModeChange]);
 
-  // Load saved board for this player/session, or reset to empty if none.
+  // ── Sync boardCommitted from on-chain ───────────────────────────────────
   useEffect(() => {
-    if (screen === 'game' && (gamePhase === 'commit' || gamePhase === 'play') && userAddress && sessionId) {
-      const saved = loadBoard(sessionId, userAddress);
-      if (saved) {
-        setSavedBoardData(saved);
-        setMyBoard(saved.tiles);
-      } else {
-        setSavedBoardData(null);
-        setMyBoard(Array(15).fill(0) as TileType[]);
-      }
-    }
-  }, [sessionId, gamePhase, userAddress, screen]);
+    if (!gameState || !myAddress) { setBoardCommitted(false); return; }
+    if      (myAddress === gameState.player1) setBoardCommitted(gameState.player1_committed);
+    else if (myAddress === gameState.player2) setBoardCommitted(gameState.player2_committed);
+    else                                      setBoardCommitted(false);
+  }, [gameState, myAddress]);
 
-  // Sync boardCommitted with on‑chain game state.
+  // ── Load board for current player when address changes ─────────────────
   useEffect(() => {
-    if (gameState) {
-      if (userAddress === gameState.player1) {
-        setBoardCommitted(gameState.player1_committed);
-      } else if (userAddress === gameState.player2) {
-        setBoardCommitted(gameState.player2_committed);
-      } else {
-        setBoardCommitted(false);
-      }
+    if (screen !== 'game' || !myAddress) return;
+    const loaded = loadBoard(sessionId, myAddress);
+    if (loaded) {
+      setMyBoard(loaded.tiles);
     } else {
-      setBoardCommitted(false);
+      setMyBoard(Array(15).fill(0) as TileType[]);
     }
-  }, [gameState, userAddress]);
+  }, [screen, sessionId, myAddress]);
+
+  // ── Poll game state every 5s ────────────────────────────────────────────
+  useEffect(() => {
+    if (screen !== 'game' || !sessionId) return;
+    const poll = async () => {
+      try {
+        const game = await svc.getGame(sessionId);
+        if (!game) return;
+        setGameState(game);
+        if      (game.phase === Phase.Finished) setGamePhase('complete');
+        else if (game.phase === Phase.Playing)  setGamePhase('play');
+        else                                    setGamePhase('commit');
+      } catch { /**/ }
+    };
+    poll();
+    const interval = setInterval(poll, 5000);
+    return () => clearInterval(interval);
+  }, [screen, sessionId]);
+
+  // ── Auto-refresh standings on complete ─────────────────────────────────
+  useEffect(() => {
+    if (gamePhase === 'complete' && winnerNum !== 0) onStandingsRefresh();
+  }, [gamePhase, winnerNum]);
+
+  // ── React to wallet changes in quick‑start mode ────────────────────────
+  useEffect(() => {
+    if (!isQuickStart || screen !== 'game' || !gameState) return;
+    if (userAddress === myAddress) return; // already set
+
+    if (userAddress === gameState.player1) {
+      setMyAddress(userAddress);
+      setMyPlayerNum(1);
+      setMyDevWallet(getDevWalletNum(userAddress));
+    } else if (userAddress === gameState.player2) {
+      setMyAddress(userAddress);
+      setMyPlayerNum(2);
+      setMyDevWallet(getDevWalletNum(userAddress));
+    } else {
+      setError('Current wallet is not a participant in this game.');
+    }
+  }, [isQuickStart, screen, gameState, userAddress, myAddress]);
 
   const runAction = async (action: () => Promise<void>) => {
     if (actionLock.current || isBusy) return;
     actionLock.current = true;
-    try {
-      await action();
-    } finally {
-      actionLock.current = false;
-    }
+    try { await action(); }
+    finally { actionLock.current = false; }
   };
 
-  const parsePoints = (value: string): bigint | null => {
-    try {
-      const cleaned = value.replace(/[^\d.]/g, '');
-      if (!cleaned || cleaned === '.') return null;
-      const [whole = '0', fraction = ''] = cleaned.split('.');
-      const paddedFraction = fraction.padEnd(POINTS_DECIMALS, '0').slice(0, POINTS_DECIMALS);
-      return BigInt(whole + paddedFraction);
-    } catch {
-      return null;
-    }
-  };
-
-  const handleStartNewGame = () => {
-    if (winnerNum !== 0) {
-      onGameComplete();
-    }
-    actionLock.current = false;
-    setScreen('lobby'); // go back to lobby
-    setGamePhase('create');
-    setSessionId(createRandomSessionId());
-    setGameState(null);
-    setLoading(false);
-    setQuickstartLoading(false);
+  // ── Lobby callback ─────────────────────────────────────────────────────
+  const handleGameReady = (
+    sid: number,
+    lockedAddress: string,
+    lockedPlayerNum: 1 | 2,
+    lockedDevWallet: 1 | 2,
+    quickStart: boolean,
+  ) => {
+    setSessionId(sid);
+    setMyAddress(lockedAddress);
+    setMyPlayerNum(lockedPlayerNum);
+    setMyDevWallet(lockedDevWallet);
+    setIsQuickStart(quickStart);
+    setScreen('game');
     setError(null);
     setSuccess(null);
-    setPlayer1Address(userAddress);
-    setPlayer1Points(DEFAULT_POINTS);
+  };
+
+  const handlePlayAgain = () => {
+    if (winnerNum !== 0) onGameComplete();
+    actionLock.current = false;
+    setScreen('lobby');
+    setSessionId(0);
+    setMyAddress('');
+    setMyPlayerNum(0);
+    setMyDevWallet(1);
+    setIsQuickStart(false);
+    setGameState(null);
+    setGamePhase('commit');
     setMyBoard(Array(15).fill(0) as TileType[]);
     setBoardCommitted(false);
+    setSelectedAttackTile(null);
+    setZkProgress(null);
+    setError(null);
+    setSuccess(null);
+    setLoading(false);
     setIsCommitting(false);
     setIsResponding(false);
-    setZkProgress(null);
-    setSelectedAttackTile(null);
-    setSavedBoardData(null);
   };
 
-  const loadGameState = async () => {
-    try {
-      const game = await poisonGameService.getGame(sessionId);
-      setGameState(game);
-      if (game) {
-        if (game.phase === Phase.Finished) setGamePhase('complete');
-        else if (game.phase === Phase.Playing) setGamePhase('play');
-        else setGamePhase('commit');
-      }
-    } catch (err) {
-      setGameState(null);
-    }
-  };
-
-  useEffect(() => {
-    if (screen === 'game' && gamePhase !== 'create') {
-      loadGameState();
-      const interval = setInterval(loadGameState, 5000);
-      return () => clearInterval(interval);
-    }
-  }, [sessionId, gamePhase, screen]);
-
-  const handleQuickStart = async () => {
-    await runAction(async () => {
-      try {
-        setQuickstartLoading(true);
-        setError(null);
-        setSuccess(null);
-
-        if (walletType !== 'dev') {
-          throw new Error('Quickstart only works with dev wallets.');
-        }
-
-        const p1Points = parsePoints(player1Points);
-        if (!p1Points || p1Points <= 0n) throw new Error('Enter valid points');
-
-        const originalPlayer = devWalletService.getCurrentPlayer();
-        let p1Addr = '', p2Addr = '';
-        let p1Signer, p2Signer;
-
-        try {
-          await devWalletService.initPlayer(1);
-          p1Addr = devWalletService.getPublicKey();
-          p1Signer = devWalletService.getSigner();
-          await devWalletService.initPlayer(2);
-          p2Addr = devWalletService.getPublicKey();
-          p2Signer = devWalletService.getSigner();
-        } finally {
-          if (originalPlayer) await devWalletService.initPlayer(originalPlayer);
-        }
-
-        if (!p1Signer || !p2Signer) throw new Error('Signers failed');
-
-        const qsId = createRandomSessionId();
-        setSessionId(qsId);
-
-        setSuccess('Creating game...');
-        const authXDR = await poisonGameService.prepareStartGame(
-          qsId, p1Addr, p2Addr, p1Points, p1Points, p1Signer
-        );
-        const signedXDR = await poisonGameService.importAndSignAuthEntry(
-          authXDR, p2Addr, p1Points, p2Signer
-        );
-        await poisonGameService.finalizeStartGame(signedXDR, p2Addr, p2Signer);
-
-        let gameExists = false;
-        for (let i = 0; i < 10; i++) {
-          await new Promise(r => setTimeout(r, 2000));
-          const g = await poisonGameService.getGame(qsId);
-          if (g) {
-            gameExists = true;
-            break;
-          }
-        }
-        if (!gameExists) throw new Error('Game not found after creation');
-
-        setGamePhase('commit');
-        setScreen('game'); // switch to game screen
-        onStandingsRefresh();
-        setSuccess('Game created! Now place your tiles and commit.');
-        setTimeout(() => setSuccess(null), 3000);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Quickstart failed');
-      } finally {
-        setQuickstartLoading(false);
-      }
-    });
-  };
-
+  // ════════════════════════════════════════════════════════════════════════
+  // COMMIT BOARD
+  // ════════════════════════════════════════════════════════════════════════
   const handleCommitBoard = async () => {
-    if (!boardValid) return;
+    if (!boardValid || boardCommitted) return;
     setIsCommitting(true);
+    setError(null);
     try {
-      const salt = generateSalt();
+      const salt       = generateSalt();
       const commitment = await computeBoardHash(myBoard, salt);
-      const signer = getContractSigner();
-      saveBoard(sessionId, userAddress, myBoard, salt, commitment);
-      setSavedBoardData({ tiles: myBoard, salt, commitment });
+      const signer     = getContractSigner();
 
-      await poisonGameService.commitBoard(sessionId, userAddress, commitment, signer);
+      saveBoard(sessionId, myAddress, myBoard, salt, commitment);
 
-      setBoardCommitted(true);
-      await loadGameState();
+      await svc.commitBoard(sessionId, myAddress, commitment, signer);
+
+      setSuccess('Board locked! Waiting for opponent to lock theirs...');
+      setTimeout(() => setSuccess(null), 5000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to commit');
       setBoardCommitted(false);
+      clearBoard(sessionId, myAddress);
+      setError(err instanceof Error ? err.message : 'Failed to commit board');
     } finally {
       setIsCommitting(false);
     }
   };
 
+  // ════════════════════════════════════════════════════════════════════════
+  // ATTACK
+  // ════════════════════════════════════════════════════════════════════════
   const handleAttack = async () => {
     if (selectedAttackTile === null) return;
     await runAction(async () => {
       try {
         setLoading(true);
+        setError(null);
         const signer = getContractSigner();
-        await poisonGameService.attack(sessionId, userAddress, selectedAttackTile, signer);
+        await svc.attack(sessionId, myAddress, selectedAttackTile, signer);
+        const t = selectedAttackTile;
         setSelectedAttackTile(null);
-        await loadGameState();
+        setSuccess(`⚔️ Attacked tile ${t}! Waiting for opponent to reveal...`);
+        setTimeout(() => setSuccess(null), 5000);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Attack failed');
       } finally {
@@ -352,21 +325,35 @@ export function PoisonGameGame({
     });
   };
 
+  // ════════════════════════════════════════════════════════════════════════
+  // RESPOND TO ATTACK — ZK proof
+  // ════════════════════════════════════════════════════════════════════════
   const handleRespondToAttack = async () => {
     await runAction(async () => {
       setIsResponding(true);
+      setError(null);
       try {
-        const boardData = savedBoardData ?? loadBoard(sessionId, userAddress);
-        if (!boardData) throw new Error('Board data lost');
+        const boardData = currentBoardData;
+        if (!boardData) throw new Error('Board data not found. Did your browser storage get cleared?');
+
         const tileType = boardData.tiles[pendingTile] as TileType;
+
         const signer = getContractSigner();
-        setZkProgress('Generating ZK proof...');
-        const proof = await generateTileProof(boardData.tiles, boardData.salt, boardData.commitment, pendingTile, tileType);
-        await poisonGameService.respondToAttack(sessionId, userAddress, tileType, proof, signer);
+
+        setZkProgress('Generating ZK proof... (~5–20 seconds)');
+        const proof = await generateTileProof(
+          boardData.tiles, boardData.salt, boardData.commitment, pendingTile, tileType
+        );
+
+        setZkProgress('Submitting proof on-chain...');
+        await svc.respondToAttack(sessionId, myAddress, tileType, proof, signer);
+
         setZkProgress(null);
-        await loadGameState();
+        setSuccess(`✅ ZK proof verified! Tile ${pendingTile} — ${TILE_EMOJI[tileType]} ${TILE_LABEL[tileType]}`);
+        setTimeout(() => setSuccess(null), 6000);
+        onStandingsRefresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Response failed');
+        setError(err instanceof Error ? err.message : 'Failed to respond');
       } finally {
         setIsResponding(false);
         setZkProgress(null);
@@ -374,137 +361,256 @@ export function PoisonGameGame({
     });
   };
 
-  const handleGameReady = (newSessionId: number) => {
-    setSessionId(newSessionId);
-    setScreen('game');
-    // The polling will pick up the game state and set the phase
-  };
-
-  // Render lobby if screen is lobby
+  // ════════════════════════════════════════════════════════════════════════
+  // RENDER — LOBBY
+  // ════════════════════════════════════════════════════════════════════════
   if (screen === 'lobby') {
     return (
       <div className="poison-game">
-        <div className="poison-game__header">
-          <h2 className="poison-game__title">
-            Poison Game ☠️
-          </h2>
-          <p className="poison-game__subtitle">
-            Hide your poison tiles. Last one standing wins!
-          </p>
-        </div>
-        {error && <div className="poison-game__message poison-game__message--error">{error}</div>}
-        {success && <div className="poison-game__message poison-game__message--success">{success}</div>}
-        <GameLobby onGameReady={handleGameReady} />
-        {/* Optionally keep quickstart for dev */}
-        {walletType === 'dev' && (
-          <div style={{ marginTop: '2rem', textAlign: 'center' }}>
-            <hr />
-            <p>Dev quickstart (for testing):</p>
-            <button onClick={handleQuickStart} disabled={quickstartLoading}>
-              {quickstartLoading ? 'Creating...' : 'Quickstart Game'}
-            </button>
-          </div>
-        )}
+        <GameLobby
+          initialXDR={initialXDR}
+          initialSessionId={initialSessionId}
+          onGameReady={handleGameReady}
+          onStandingsRefresh={onStandingsRefresh}
+        />
       </div>
     );
   }
 
-  // Render game board if screen is game
+  // ════════════════════════════════════════════════════════════════════════
+  // RENDER — ACTIVE GAME
+  // ════════════════════════════════════════════════════════════════════════
   return (
     <div className="poison-game">
-      
-      {error && <div className="poison-game__message poison-game__message--error">{error}</div>}
-      {success && <div className="poison-game__message poison-game__message--success">{success}</div>}
 
+      {/* ── Progress bar ─────────────────────────────────────────────── */}
+      {gameState && (
+        <div className="scorebar">
+          <div className={`scorebar__player ${iAmPlayer1 ? 'scorebar__player--me' : ''}`}>
+            <div className="scorebar__name">Player 1 {iAmPlayer1 && <span className="scorebar__you">(You)</span>}</div>
+            <div className="scorebar__found">
+              ☠️ {p1Found.poison}/2 &nbsp; 🛡️ {p1Found.shield}/1
+            </div>
+            <div className="scorebar__status">{gameState.player1_committed ? '✓ Board set' : '⏳ Setting board...'}</div>
+          </div>
+          <div className="scorebar__vs">vs</div>
+          <div className={`scorebar__player ${iAmPlayer2 ? 'scorebar__player--me' : ''}`}>
+            <div className="scorebar__name">Player 2 {iAmPlayer2 && <span className="scorebar__you">(You)</span>}</div>
+            <div className="scorebar__found">
+              ☠️ {p2Found.poison}/2 &nbsp; 🛡️ {p2Found.shield}/1
+            </div>
+            <div className="scorebar__status">{gameState.player2_committed ? '✓ Board set' : '⏳ Setting board...'}</div>
+          </div>
+        </div>
+      )}
+
+      {/* Status messages */}
+      {error      && <div className="poison-game__msg poison-game__msg--error">{error}</div>}
+      {success    && <div className="poison-game__msg poison-game__msg--success">{success}</div>}
+      {zkProgress && (
+        <div className="poison-game__msg poison-game__msg--zk">
+          <span className="poison-game__spinner" aria-hidden="true" />
+          {zkProgress}
+        </div>
+      )}
+
+      {/* ══ COMMIT PHASE ══════════════════════════════════════════════════ */}
       {gamePhase === 'commit' && (
-        <div className="commit-phase">
-          <div className="board-grid">
-            {myBoard.map((tile, idx) => (
-              <button
-                key={idx}
-                onClick={() => {
-                  if (boardCommitted) return;
-                  const newBoard = [...myBoard] as TileType[];
-                  if (newBoard[idx] === activeTool) newBoard[idx] = 0;
-                  else {
-                    if (activeTool === 1 && poisonCount >= 2) return;
-                    if (activeTool === 2 && shieldCount >= 1) return;
-                    newBoard[idx] = activeTool;
-                  }
-                  setMyBoard(newBoard);
-                }}
-                className={`tile ${tile === 1 ? 'tile--poison' : tile === 2 ? 'tile--shield' : ''}`}
-                disabled={boardCommitted}
-              >
-                {TILE_EMOJI[tile]}
+        <div className="phase commit-phase">
+          {!boardCommitted ? (
+            <>
+              <p className="phase__title">🗺️ Place your secret tiles</p>
+              <p className="phase__hint">
+                Place <strong>2 Poison ☠️</strong> and <strong>1 Shield 🛡️</strong>.
+                First to find all 3 on the opponent's board wins!
+              </p>
+
+              <div className="tool-selector">
+                {([1, 2] as TileType[]).map(t => (
+                  <button key={t} className={`tool-btn ${activeTool === t ? 'tool-btn--active' : ''}`} onClick={() => setActiveTool(t)}>
+                    {TILE_EMOJI[t]} {TILE_LABEL[t]}
+                    <span className="tool-btn__count">{t === 1 ? `${poisonCount}/2` : `${shieldCount}/1`}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="board-grid">
+                {myBoard.map((tile, idx) => (
+                  <button
+                    key={idx}
+                    className={`tile ${tile === 1 ? 'tile--poison' : tile === 2 ? 'tile--shield' : 'tile--normal'}`}
+                    onClick={() => {
+                      const next = [...myBoard] as TileType[];
+                      if (next[idx] === activeTool) { next[idx] = 0; }
+                      else {
+                        if (activeTool === 1 && poisonCount >= 2 && next[idx] !== 1) return;
+                        if (activeTool === 2 && shieldCount >= 1 && next[idx] !== 2) return;
+                        next[idx] = activeTool;
+                      }
+                      setMyBoard(next);
+                    }}
+                  >
+                    {TILE_EMOJI[tile]}
+                  </button>
+                ))}
+              </div>
+
+              {!boardValid && (
+                <p className="board-error">{validateBoard(myBoard).error ?? 'Place 2 Poison + 1 Shield to continue'}</p>
+              )}
+
+              <button className="action-btn" onClick={handleCommitBoard} disabled={!boardValid || isCommitting}>
+                {isCommitting ? 'Locking board...' : '🔒 Lock Board'}
               </button>
-            ))}
-          </div>
-          <div className="tool-selector">
-            {[1, 2].map((t) => (
-              <button
-                key={t}
-                onClick={() => setActiveTool(t as TileType)}
-                className={`tool-button ${activeTool === t ? 'tool-button--active' : ''}`}
-              >
-                {TILE_EMOJI[t]} {TILE_LABEL[t]}
-              </button>
-            ))}
-          </div>
-          <button
-            onClick={handleCommitBoard}
-            disabled={!boardValid || isCommitting || boardCommitted}
-            className="action-button"
-          >
-            {boardCommitted ? 'Waiting for Opponent...' : 'Lock Board & Start'}
-          </button>
+            </>
+          ) : (
+            <div className="waiting-state">
+              <div className="waiting-state__icon">✓</div>
+              <p className="waiting-state__title">Your board is locked!</p>
+              <p className="waiting-state__hint">Waiting for opponent to lock their board...</p>
+            </div>
+          )}
         </div>
       )}
 
+      {/* ══ PLAY PHASE ════════════════════════════════════════════════════ */}
       {gamePhase === 'play' && (
-        <div className="play-phase">
-          <div className="attack-grid">
-            {Array.from({ length: 15 }, (_, idx) => {
-              const revealed = oppRevealedTiles.find(r => r.tile_index === idx);
-              return (
-                <button
-                  key={idx}
-                  onClick={() => !revealed && setSelectedAttackTile(idx)}
-                  className={`attack-tile ${revealed ? 'attack-tile--revealed' : ''} ${selectedAttackTile === idx ? 'attack-tile--selected' : ''}`}
-                  disabled={!!revealed}
-                >
-                  {revealed ? TILE_EMOJI[revealed.tile_type] : selectedAttackTile === idx ? '🎯' : '❓'}
-                </button>
-              );
-            })}
+        <div className="phase play-phase">
+
+          {/* Hunt progress for current player */}
+          <div className="hunt-progress">
+            <span>Your hunt: ☠️ {myFound.poison}/2 &nbsp; 🛡️ {myFound.shield}/1</span>
+            <span className="hunt-progress__goal">— Find all 3 to win!</span>
           </div>
+
           {isMyAttackTurn && (
-            <button
-              onClick={handleAttack}
-              disabled={selectedAttackTile === null}
-              className="attack-button"
-            >
-              Attack Selected Tile
-            </button>
+            <div className="attack-section">
+              <p className="phase__title">⚔️ Your turn — choose a tile to attack</p>
+              <div className="board-grid">
+                {Array.from({ length: 15 }, (_, idx) => {
+                  const revealed = oppRevealedTiles.find(r => r.tile_index === idx);
+                  const selected = selectedAttackTile === idx;
+                  return (
+                    <button
+                      key={idx}
+                      className={`tile ${revealed ? 'tile--revealed' : ''} ${selected ? 'tile--selected' : ''} ${!revealed ? 'tile--unknown' : ''}`}
+                      onClick={() => !revealed && setSelectedAttackTile(idx)}
+                      disabled={!!revealed}
+                    >
+                      {revealed ? TILE_EMOJI[revealed.tile_type] : selected ? '🎯' : '❓'}
+                    </button>
+                  );
+                })}
+              </div>
+              <button className="action-btn action-btn--attack" onClick={handleAttack} disabled={selectedAttackTile === null || loading}>
+                {loading ? 'Attacking...' : selectedAttackTile !== null ? `⚔️ Strike Tile ${selectedAttackTile}` : '⚔️ Select a tile first'}
+              </button>
+            </div>
           )}
+
           {isMyDefenseTurn && (
-            <button
-              onClick={handleRespondToAttack}
-              className="defense-button"
-            >
-              {isResponding ? zkProgress : `Reveal Tile ${pendingTile}`}
-            </button>
+            <div className="defense-section">
+              <p className="phase__title">🛡️ You were attacked on tile {pendingTile}!</p>
+              {currentBoardData && (
+                <p className="phase__hint">
+                  Your tile: <strong>{TILE_EMOJI[currentBoardData.tiles[pendingTile]]} {TILE_LABEL[currentBoardData.tiles[pendingTile]]}</strong> — prove it with a ZK proof.
+                </p>
+              )}
+              <button className="action-btn action-btn--defend" onClick={handleRespondToAttack} disabled={isResponding}>
+                {isResponding ? (zkProgress ?? 'Generating proof...') : '🔐 Reveal & Prove'}
+              </button>
+            </div>
           )}
+
+          {!isMyAttackTurn && !isMyDefenseTurn && (
+            <div className="waiting-state">
+              <p className="waiting-state__title">
+                {gameState?.has_pending_attack
+                  ? `⏳ Opponent is revealing tile ${pendingTile}...`
+                  : '⏳ Waiting for opponent to attack...'}
+              </p>
+            </div>
+          )}
+
+          {/* Both boards overview */}
+          <div className="boards-overview">
+            <div className="boards-overview__side">
+              <p className="boards-overview__label">Your Board (P{myPlayerNum})</p>
+              <div className="board-grid board-grid--small">
+                {Array.from({ length: 15 }, (_, idx) => {
+                  const attacked = myRevealedTiles.find(r => r.tile_index === idx);
+                  const myTile   = currentBoardData?.tiles[idx] ?? 0;
+                  return (
+                    <div key={idx} className={`tile tile--small ${attacked ? 'tile--revealed' : ''}`}>
+                      {attacked ? TILE_EMOJI[attacked.tile_type] : TILE_EMOJI[myTile]}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="boards-overview__side">
+              <p className="boards-overview__label">Opponent's Board</p>
+              <div className="board-grid board-grid--small">
+                {Array.from({ length: 15 }, (_, idx) => {
+                  const revealed = oppRevealedTiles.find(r => r.tile_index === idx);
+                  return (
+                    <div key={idx} className={`tile tile--small ${revealed ? 'tile--revealed' : 'tile--unknown'}`}>
+                      {revealed ? TILE_EMOJI[revealed.tile_type] : '❓'}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
-      {gamePhase === 'complete' && (
-        <div className="complete-container">
-          <div className="complete-emoji">{iWon ? '🏆' : '☠️'}</div>
-          <h3 className="complete-title">{iWon ? 'You Won!' : 'Game Over'}</h3>
-          <button onClick={handleStartNewGame} className="play-again-button">Play Again</button>
+      {/* ══ COMPLETE PHASE ════════════════════════════════════════════════ */}
+      {gamePhase === 'complete' && gameState && (
+        <div className="phase complete-phase">
+          <div className="complete-phase__hero">
+            <span className="complete-phase__emoji">{iWon ? '🏆' : '☠️'}</span>
+            <h3 className="complete-phase__title">{iWon ? 'You Won!' : 'Game Over'}</h3>
+            <p className="complete-phase__sub">
+              {iWon
+                ? 'You found all 3 special tiles first! 🎉'
+                : 'Opponent found all 3 special tiles first.'}
+            </p>
+          </div>
+
+          <div className="complete-phase__scores">
+            {[
+              {
+                num: 1, addr: gameState.player1,
+                found: p1Found, isWinner: winnerNum === 1, isMe: iAmPlayer1,
+              },
+              {
+                num: 2, addr: gameState.player2,
+                found: p2Found, isWinner: winnerNum === 2, isMe: iAmPlayer2,
+              },
+            ].map(p => (
+              <div
+                key={p.num}
+                className={`score-card ${p.isWinner ? 'score-card--winner' : ''} ${p.isMe ? 'score-card--me' : ''}`}
+              >
+                <div className="score-card__label">
+                  Player {p.num}{p.isWinner && ' 🏆'}{p.isMe && ' (You)'}
+                </div>
+                <div className="score-card__addr">{p.addr.slice(0, 8)}...{p.addr.slice(-4)}</div>
+                <div className="score-card__found">
+                  ☠️ {p.found.poison}/2 &nbsp; 🛡️ {p.found.shield}/1
+                </div>
+                {p.isWinner && (
+                  <div className="score-card__badge">Found all specials!</div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <button className="action-btn" onClick={handlePlayAgain}>Play Again</button>
         </div>
       )}
+
     </div>
   );
 }
